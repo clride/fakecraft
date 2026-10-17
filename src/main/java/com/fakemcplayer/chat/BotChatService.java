@@ -3,6 +3,11 @@ package com.fakemcplayer.chat;
 import com.fakemcplayer.FakeMCPlayer;
 import com.fakemcplayer.ai.AiProvider;
 import com.fakemcplayer.config.BotConfig;
+import com.fakemcplayer.dashboard.DashboardEvents;
+import com.fakemcplayer.dashboard.DashboardState;
+import com.fakemcplayer.dashboard.DraftRegistry;
+import com.fakemcplayer.dashboard.DraftRegistry.Draft;
+import com.google.gson.JsonObject;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -11,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -18,13 +24,20 @@ import java.util.function.Supplier;
 /**
  * Generates replies via the AI provider and delivers them as fake-player chat.
  * Handles cooldowns + human-like delays + message splitting.
+ *
+ * <p>Operator-console modes: {@code auto} replies on its own, {@code approve}
+ * holds replies as drafts for review, {@code manual} keeps the bot quiet and
+ * lets the operator write. All decisions are recorded in {@link DashboardEvents}.</p>
  */
 public class BotChatService {
 
     private final FakeMCPlayer plugin;
     private BotConfig config;
-    private final ConversationMemory memory;
+    private ConversationMemory memory;
     private Supplier<AiProvider> providers;
+    private final DashboardState dashState;
+    private final DashboardEvents events;
+    private final DraftRegistry drafts;
 
     private final Map<String, Instant> lastPerPlayer = new ConcurrentHashMap<>();
     private volatile Instant lastGlobal = Instant.EPOCH;
@@ -38,15 +51,20 @@ public class BotChatService {
     private record Pending(String player, String message) {}
 
     public BotChatService(FakeMCPlayer plugin, BotConfig config, ConversationMemory memory,
-                          Supplier<AiProvider> providers) {
+                          Supplier<AiProvider> providers, DashboardState dashState,
+                          DashboardEvents events, DraftRegistry drafts) {
         this.plugin = plugin;
         this.config = config;
         this.memory = memory;
         this.providers = providers;
+        this.dashState = dashState;
+        this.events = events;
+        this.drafts = drafts;
     }
 
     public void setConfig(BotConfig config) { this.config = config; }
     public void setProviderSupplier(Supplier<AiProvider> providers) { this.providers = providers; }
+    public void setMemory(ConversationMemory memory) { this.memory = memory; }
 
     public boolean checkCooldown(String playerName) {
         Instant now = Instant.now();
@@ -57,14 +75,36 @@ public class BotChatService {
     }
 
     public void markResponded(String playerName) {
-        lastPerPlayer.put(playerName.toLowerCase(), Instant.now());
+        if (playerName != null && !playerName.isBlank()) {
+            lastPerPlayer.put(playerName.toLowerCase(), Instant.now());
+        }
         lastGlobal = Instant.now();
     }
 
     /** Normal reactive reply. Burst-safe: at most one turn in flight. */
     public void respondTo(String playerName, String triggerMessage) {
-        if (!config.isEnabled()) return;
-        if (!checkCooldown(playerName)) return;
+        if (!config.isEnabled() || dashState.isBotLeft()) return;
+        if (dashState.isPaused()) {
+            events.add("skip", DashboardEvents.ev(playerName, triggerMessage)
+                    .str("reason", "paused"));
+            return;
+        }
+        if (dashState.isMuted(playerName)) {
+            events.add("skip", DashboardEvents.ev(playerName, triggerMessage)
+                    .str("reason", "muted"));
+            return;
+        }
+        if (dashState.isManual()) {
+            events.add("held", DashboardEvents.ev(playerName, triggerMessage)
+                    .str("reason", "manual-mode"));
+            return;
+        }
+        // (manual mode already returned above, so cooldowns only gate auto/approve)
+        if (!checkCooldown(playerName)) {
+            events.add("skip", DashboardEvents.ev(playerName, triggerMessage)
+                    .str("reason", "cooldown"));
+            return;
+        }
         synchronized (turnLock) {
             if (busy) {
                 // Mid-reply burst: remember only the latest message.
@@ -75,14 +115,13 @@ public class BotChatService {
             busy = true;
         }
 
-        String botName = config.getBotName();
         String system = buildSystemPrompt(playerName);
         List<AiProvider.ChatMessage> history = memory.historyFor(playerName, config.getMaxHistory());
         // Just the chat line — all behavior rules live in the system prompt.
         // (Putting instructions here is what makes models narrate/explain the reply.)
         String userContent = playerName + ": " + triggerMessage;
 
-        generateAndSend(playerName, system, history, userContent, triggerMessage.length());
+        generateAndSend(playerName, system, history, userContent, triggerMessage.length(), "reply");
     }
 
     /** Claims the turn for an unprompted message; skips (no queue) if busy. */
@@ -94,11 +133,28 @@ public class BotChatService {
         }
     }
 
+    /**
+     * Unprompted messages (proactive, greetings, reactions) respect the mode:
+     * manual suppresses them outright, approve turns them into drafts later.
+     *
+     * @return true when the caller must skip.
+     */
+    private boolean blockedUnprompted(String player, String kind) {
+        String reason = null;
+        if (dashState.isPaused()) reason = "paused";
+        else if (dashState.isManual()) reason = "manual-mode";
+        else if (dashState.isMuted(player)) reason = "muted";
+        if (reason == null) return false;
+        events.add("suppressed", DashboardEvents.ev(player, null)
+                .str("kind", kind).str("reason", reason));
+        return true;
+    }
+
     /** Proactive opener when alone with one player. */
     public void sendProactive(String lonePlayer) {
-        if (!config.isEnabled()) return;
+        if (!config.isEnabled() || dashState.isBotLeft()) return;
+        if (blockedUnprompted(lonePlayer, "proactive")) return;
         if (!claimTurn()) return;
-        String botName = config.getBotName();
         String system = buildSystemPrompt(lonePlayer)
                 + " You are alone on the server with " + lonePlayer + ". "
                 + "Establish a connection on your own: greet them warmly, ask an open question about "
@@ -107,42 +163,46 @@ public class BotChatService {
         List<String> recent = memory.recentGlobal(6);
         String userContent = "Recent server chat:\n" + String.join("\n", recent)
                 + "\n" + lonePlayer + " is around. Say something to them.";
-        generateAndSend(lonePlayer, system, history, userContent, 0);
+        generateAndSend(lonePlayer, system, history, userContent, 0, "proactive");
     }
 
     /** React to a public server event (death, advancement) like a normal player would. */
     public void reactToEvent(String contextPlayer, String eventLine) {
-        if (!config.isEnabled()) return;
+        if (!config.isEnabled() || dashState.isBotLeft()) return;
+        if (blockedUnprompted(contextPlayer, "reaction")) return;
         if (!claimTurn()) return;
         String system = buildSystemPrompt(contextPlayer)
                 + " Something just happened on the server: " + eventLine
                 + " React briefly the way a normal player would (rip, gg, nice, lol...)."
                 + " 1-2 short sentences max, often just a few words. Do not narrate the event back formally.";
         List<AiProvider.ChatMessage> history = memory.historyFor(contextPlayer, config.getMaxHistory());
-        generateAndSend(contextPlayer, system, history, eventLine, eventLine.length());
+        generateAndSend(contextPlayer, system, history, eventLine, eventLine.length(), "reaction");
     }
 
     /** Join greeting when it's just the bot and the newcomer. */
     public void sendJoinGreeting(String joiner) {
-        if (!config.isEnabled()) return;
+        if (!config.isEnabled() || dashState.isBotLeft()) return;
+        if (blockedUnprompted(joiner, "greeting")) return;
         if (!claimTurn()) return;
-        String botName = config.getBotName();
         String system = buildSystemPrompt(joiner)
                 + " " + joiner + " just joined the server and right now it is only you two online. "
                 + "Greet them casually like a regular (welcome, hey, what's up), maybe ask what they are up to."
                 + " Keep it to 1-2 short sentences, calm and informal, no AI talk.";
         List<AiProvider.ChatMessage> history = memory.historyFor(joiner, config.getMaxHistory());
         String userContent = joiner + " just joined the server.";
-        generateAndSend(joiner, system, history, userContent, 0);
+        generateAndSend(joiner, system, history, userContent, 0, "greeting");
     }
 
     private void generateAndSend(String contextPlayer, String system,
                                  List<AiProvider.ChatMessage> history, String userContent,
-                                 int triggerLength) {
+                                 int triggerLength, String source) {
         AiProvider provider = providers.get();
         provider.chat(system, history, userContent).whenComplete((reply, err) -> {
             if (err != null) {
                 plugin.getLogger().warning("AI reply failed (" + provider.providerName() + "): " + err.getMessage());
+                events.add("error", DashboardEvents.ev(contextPlayer, null)
+                        .str("where", "ai:" + source)
+                        .str("message", String.valueOf(err.getMessage())));
                 endTurnWithoutDelivery();
                 return;
             }
@@ -151,9 +211,136 @@ public class BotChatService {
                 return;
             }
             String clean = sanitize(reply, contextPlayer);
+            if (dashState.isApprove()) {
+                // Hold it for review instead of sending. New drafts for the same
+                // player replace the old one (they reflect the latest context).
+                Draft d = drafts.put(contextPlayer, clean, userContent, source);
+                events.add("draft_created", draftPayload(d));
+                endTurnWithoutDelivery();
+                return;
+            }
             memory.addBotMessage(clean, contextPlayer);
-            deliverWithDelay(clean, triggerLength, () -> onDelivered(contextPlayer));
+            deliverWithDelay(clean, triggerLength, contextPlayer, source,
+                    () -> onDelivered(contextPlayer));
         });
+    }
+
+    // ------------------------------------------------------------- operator
+
+    /** Send a message as the bot right now (operator console). Main thread. */
+    public void sendAsBot(String target, String rawText) {
+        if (!config.isEnabled()) return;
+        String text = sanitizeManual(rawText);
+        if (text.isBlank()) return;
+        String contextPlayer = (target == null || target.isBlank()
+                || target.equalsIgnoreCase("#server") || target.equalsIgnoreCase("server"))
+                ? null : target;
+        memory.addBotMessage(text, contextPlayer);
+        deliverImmediate(text, contextPlayer, "operator");
+    }
+
+    /** Approve or edit a held draft. Main thread. */
+    public void deliverDraft(Draft d, String overrideText) {
+        if (d == null) return;
+        String text = (overrideText == null || overrideText.isBlank())
+                ? d.text() : sanitizeManual(overrideText);
+        if (text.isBlank()) {
+            events.add("draft_resolved", draftResolved(d, "discarded-empty"));
+            return;
+        }
+        boolean edited = overrideText != null && !overrideText.isBlank() && !text.equals(d.text());
+        memory.addBotMessage(text, d.player());
+        deliverImmediate(text, d.player(), edited ? "edited" : "approved");
+        events.add("draft_resolved", draftResolved(d, edited ? "edited" : "sent"));
+    }
+
+    /** Discard a held draft without sending. Main thread. */
+    public void discardDraft(Draft d) {
+        if (d == null) return;
+        events.add("draft_resolved", draftResolved(d, "discarded"));
+    }
+
+    /** Ask the AI to regenerate a draft (approve mode). Main thread. */
+    public void regenerateDraft(Draft d) {
+        if (d == null) return;
+        String system = buildSystemPrompt(d.player());
+        List<AiProvider.ChatMessage> history = memory.historyFor(d.player(), config.getMaxHistory());
+        String userContent = (d.trigger() == null || d.trigger().isBlank())
+                ? d.player() + ": " : d.trigger();
+        AiProvider provider = providers.get();
+        provider.chat(system, history, userContent).whenComplete((reply, err) -> {
+            if (err != null || reply == null || reply.isBlank()) {
+                if (err != null) {
+                    events.add("error", DashboardEvents.ev(d.player(), null)
+                            .str("where", "ai:regenerate")
+                            .str("message", String.valueOf(err.getMessage())));
+                }
+                return;
+            }
+            String clean = sanitize(reply, d.player());
+            Draft updated = drafts.replaceText(d.id(), clean);
+            if (updated != null) {
+                events.add("draft_created", draftPayload(updated).bool("replaced", true));
+            }
+        });
+    }
+
+    /**
+     * AI suggestion for the operator's composer (manual mode "Suggest" button).
+     * Never sends; the text lands in the dashboard input box. Thread-safe.
+     */
+    public CompletableFuture<String> suggestReply(String player) {
+        String system = buildSystemPrompt(player);
+        List<AiProvider.ChatMessage> history = memory.historyFor(player, config.getMaxHistory());
+        String lastUser = null;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            if ("user".equals(history.get(i).role())) {
+                lastUser = history.get(i).content();
+                break;
+            }
+        }
+        String userContent = lastUser != null
+                ? lastUser
+                : player + " is around. Say something casual to them.";
+        AiProvider provider = providers.get();
+        return provider.chat(system, history, userContent).thenApply(reply -> {
+            if (reply == null || reply.isBlank()) return "";
+            return sanitize(reply, player);
+        });
+    }
+
+    // ------------------------------------------------------------ internals
+
+    private DashboardEvents.P draftPayload(Draft d) {
+        return DashboardEvents.ev(d.player(), d.text())
+                .num("draftId", d.id())
+                .str("source", d.source())
+                .num("at", d.at());
+    }
+
+    private DashboardEvents.P draftResolved(Draft d, String action) {
+        return DashboardEvents.ev(d.player(), null)
+                .num("draftId", d.id())
+                .str("action", action)
+                .str("source", d.source());
+    }
+
+    /** Approved drafts + operator sends: no human pause, goes out now. Main thread. */
+    private void deliverImmediate(String text, String contextPlayer, String source) {
+        List<String> parts = split(text);
+        sendChatLine(parts.get(0));
+        events.add("bot_message", DashboardEvents.ev(contextPlayer, text)
+                .str("source", source)
+                .num("parts", parts.size())
+                .num("delayMs", 0));
+        long atMs = 0;
+        for (int i = 1; i < parts.size(); i++) {
+            final String part = parts.get(i);
+            atMs += nextPartGapMs(part);
+            final long sendAt = atMs;
+            Bukkit.getScheduler().runTaskLater(plugin, () -> sendChatLine(part), sendAt / 50);
+        }
+        markResponded(contextPlayer);
     }
 
     /** Reply hit chat: restart the timeout from HERE, then send at most one follow-up. */
@@ -228,10 +415,31 @@ public class BotChatService {
         return base;
     }
 
+    /** Sanitizer for AI output: strips quotes, name prefix and narration. */
     private String sanitize(String s, String contextPlayer) {
+        String t = stripWrapping(s);
+        // strip thought-out-loud narration (reasoning models especially):
+        // "Dyzody sent "seas" twice, so reply in German. Seas, wos gibts?"
+        // -> "Seas, wos gibts?"
+        t = stripNarration(t, contextPlayer);
+        // hard cap to avoid chat spam
+        if (t.length() > 450) t = t.substring(0, 447) + "...";
+        return t.trim();
+    }
+
+    /** Light sanitizer for operator-typed text: quotes + prefix + length only. */
+    private String sanitizeManual(String s) {
+        if (s == null) return "";
+        String t = stripWrapping(s);
+        if (t.length() > 450) t = t.substring(0, 447) + "...";
+        return t.trim();
+    }
+
+    private String stripWrapping(String s) {
+        if (s == null) return "";
         String t = s.trim();
         // strip wrapping quotes the model sometimes adds
-        if (t.length() > 1 && t.startsWith("\"") && t.endsWith("\"")) t = t.substring(1, t.length() - 1);
+        if (t.length() > 1 && t.startsWith("\"") && t.endsWith("\"")) t = t.substring(1, t.length() - 1).trim();
         // strip leading name prefix if the model adds one ("Flo: hi", "<Flo> hi")
         String botName = config.getBotName();
         if (!botName.isBlank()) {
@@ -240,13 +448,7 @@ public class BotChatService {
             if (low.startsWith(bn + ":")) t = t.substring(bn.length() + 1).trim();
             else if (low.startsWith("<" + bn + ">")) t = t.substring(bn.length() + 2).trim();
         }
-        // strip thought-out-loud narration (reasoning models especially):
-        // "Dyzody sent "seas" twice, so reply in German. Seas, wos gibts?"
-        // -> "Seas, wos gibts?"
-        t = stripNarration(t, contextPlayer);
-        // hard cap to avoid chat spam
-        if (t.length() > 450) t = t.substring(0, 447) + "...";
-        return t.trim();
+        return t;
     }
 
     /**
@@ -292,7 +494,8 @@ public class BotChatService {
                 || low.contains("means") || low.contains("which is"));
     }
 
-    private void deliverWithDelay(String message, int triggerLength, Runnable onFirstSent) {
+    private void deliverWithDelay(String message, int triggerLength, String contextPlayer,
+                                  String source, Runnable onFirstSent) {
         List<String> parts = split(message);
         // Human pause: random window + reading time for the incoming message,
         // on top of the AI round-trip that already happened. Then typing sim.
@@ -305,20 +508,41 @@ public class BotChatService {
         long initialDelay = humanPause + typing;
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             sendChatLine(parts.get(0));
+            events.add("bot_message", DashboardEvents.ev(contextPlayer, message)
+                    .str("source", source)
+                    .num("parts", parts.size())
+                    .num("delayMs", initialDelay));
             try {
                 onFirstSent.run();
             } catch (Exception e) {
                 plugin.getLogger().fine("Delivery callback failed: " + e.getMessage());
             }
         }, initialDelay / 50);
+        long atMs = initialDelay;
         for (int i = 1; i < parts.size(); i++) {
             final String part = parts.get(i);
-            long delayTicks = initialDelay / 50 + i * 24L; // +1.2s per extra chunk
-            Bukkit.getScheduler().runTaskLater(plugin, () -> sendChatLine(part), delayTicks);
+            // A human who just sent one chunk isn't instant: the next chunk
+            // lands after a typing-length pause, plus a little read/think time.
+            atMs += nextPartGapMs(part);
+            final long sendAt = atMs;
+            Bukkit.getScheduler().runTaskLater(plugin, () -> sendChatLine(part), sendAt / 50);
         }
     }
 
+    /**
+     * Pause before a follow-up chunk of a split message: typing time for that
+     * chunk (chars/typist pace) plus a small randomized pause, mirroring the
+     * pace a real person shows when continuing a thought mid-chat.
+     */
+    private long nextPartGapMs(String nextPart) {
+        long ms = Math.min(4000L, Math.max(900L, (long) nextPart.length() * 40L));
+        return ms + 300L + (long) (Math.random() * 1200L);
+    }
+
     private void sendChatLine(String text) {
+        // A player who left the game cannot chat — drop in-flight chunks
+        // if the operator pressed Leave while a message was still sending.
+        if (dashState.isBotLeft()) return;
         String fmt = config.getChatFormat(); // e.g. "<{name}> {message}"
         String botName = config.getBotName();
         if (fmt.contains("{message}") && fmt.contains("{name}")) {

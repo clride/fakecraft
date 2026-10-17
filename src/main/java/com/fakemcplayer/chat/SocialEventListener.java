@@ -2,6 +2,7 @@ package com.fakemcplayer.chat;
 
 import com.fakemcplayer.FakeMCPlayer;
 import com.fakemcplayer.config.BotConfig;
+import com.fakemcplayer.dashboard.DashboardEvents;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
@@ -10,6 +11,8 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerAdvancementDoneEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -24,18 +27,39 @@ public class SocialEventListener implements Listener {
 
     private final FakeMCPlayer plugin;
     private BotConfig config;
-    private final ConversationMemory memory;
+    private ConversationMemory memory;
     private final BotChatService chatService;
+    private final DashboardEvents events;
 
     public SocialEventListener(FakeMCPlayer plugin, BotConfig config,
-                               ConversationMemory memory, BotChatService chatService) {
+                               ConversationMemory memory, BotChatService chatService,
+                               DashboardEvents events) {
         this.plugin = plugin;
         this.config = config;
         this.memory = memory;
         this.chatService = chatService;
+        this.events = events;
     }
 
     public void setConfig(BotConfig config) { this.config = config; }
+    public void setMemory(ConversationMemory memory) { this.memory = memory; }
+
+    /** Vanilla join/leave lines are public chat — mirror them to the console. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onJoinLeave(PlayerJoinEvent event) {
+        String name = event.getPlayer().getName();
+        if (name.equalsIgnoreCase(config.getBotName())) return;
+        events.add("player_message", DashboardEvents.ev(name, name + " joined the game")
+                .bool("system", true));
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onQuit(PlayerQuitEvent event) {
+        String name = event.getPlayer().getName();
+        if (name.equalsIgnoreCase(config.getBotName())) return;
+        events.add("player_message", DashboardEvents.ev(name, name + " left the game")
+                .bool("system", true));
+    }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDeath(PlayerDeathEvent event) {
@@ -60,6 +84,11 @@ public class SocialEventListener implements Listener {
             }
         }
         if (plain == null || plain.isBlank()) return;
+
+        // Public death announcement — feed the operator console. Rendered as
+        // a system row; the reaction chance below only decides whether the
+        // bot reacts.
+        events.add("player_message", DashboardEvents.ev(victim, plain).bool("system", true));
 
         if (ThreadLocalRandom.current().nextDouble() >= clamp(config.getDeathChance())) return;
         if (!chatService.checkCooldown(victim)) return;
@@ -98,6 +127,9 @@ public class SocialEventListener implements Listener {
             }
         }
         if (plain == null || plain.isBlank()) return;
+
+        // Public advancement announcement — feed the operator console.
+        events.add("player_message", DashboardEvents.ev(player, plain).bool("system", true));
 
         if (ThreadLocalRandom.current().nextDouble() >= clamp(config.getAdvancementChance())) return;
         if (!chatService.checkCooldown(player)) return;

@@ -23,7 +23,7 @@ public class JoinGreeter implements Listener {
 
     private final FakeMCPlayer plugin;
     private BotConfig config;
-    private final ConversationMemory memory;
+    private ConversationMemory memory;
     private final BotChatService chatService;
     // one pending greeting per player so re-joins don't stack
     private final ConcurrentHashMap<UUID, Integer> pending = new ConcurrentHashMap<>();
@@ -37,6 +37,7 @@ public class JoinGreeter implements Listener {
     }
 
     public void setConfig(BotConfig config) { this.config = config; }
+    public void setMemory(ConversationMemory memory) { this.memory = memory; }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onJoin(PlayerJoinEvent event) {

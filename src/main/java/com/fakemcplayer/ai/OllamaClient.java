@@ -88,7 +88,11 @@ public class OllamaClient implements AiProvider {
                         try {
                             JsonObject json = JsonParser.parseString(resp.body()).getAsJsonObject();
                             if (json.has("message")) {
-                                return json.getAsJsonObject("message").get("content").getAsString().trim();
+                                JsonObject msg = json.getAsJsonObject("message");
+                                String content = msg.has("content") && !msg.get("content").isJsonNull()
+                                        ? msg.get("content").getAsString() : "";
+                                // blank = model wrote nothing (num_predict) — caller treats it as "no reply"
+                                return content.trim();
                             }
                             // fallback for /api/generate style
                             if (json.has("response")) return json.get("response").getAsString().trim();

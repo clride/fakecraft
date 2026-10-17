@@ -7,6 +7,8 @@ Paper/Purpur 26.3 plugin (also compatible with 1.20+ via reflective NMS): a fake
 Behavior you asked for:
 - **Alone with 1 player** → bot is social on its own: answers everything + proactively starts conversation when chat goes quiet.
 - **Crowded server** → bot stays silent unless addressed. Direct mentions reply instantly, ambiguous messages go through a cheap **judge LLM** (`YES`/`NO`) to decide if it was addressed.
+- **Human delivery cadence** → replies wait out a random human pause, and long replies that get split into multiple chat lines send part by part with a typing-length pause between them — never as a burst.
+- **Leave / Rejoin** → the bot can walk out of the server like a real player: "left the game" line, gone from the tab list and the multiplayer server-list entry, zero interactions. Rejoin (console button or `/bot rejoin`) brings it back with a "joined the game" line. The state survives restarts.
 
 ## Build
 
@@ -65,14 +67,56 @@ interaction:
   mention-triggers: ["@sam", "!ask", "!bot", "bot,"]
   alone-mode: {enabled: true, threshold: 1, proactive-interval-minutes: 3, idle-minutes: 2}
   group-mode: {judge-enabled: true, ...}  # false = mention-only, never judges
+
+dashboard:
+  enabled: true
+  host: "0.0.0.0"            # 127.0.0.1 = this machine only
+  port: 8642
+  token: ""                  # blank = generated at startup, printed to console
+  mode: auto                 # auto | approve | manual (live-switchable)
 ```
 
 Full annotated example: `src/main/resources/config.yml`.
+
+## Operator console (dashboard)
+
+The plugin hosts a small web console (JDK HttpServer, SSE — no extra dependencies)
+to watch and steer the bot. Open the URL that is printed at startup or re-shown
+with `/bot dashboard` — the link contains the access token.
+
+- **One `#server` feed** — everything the operator needs in a single channel:
+  player and bot chat, system lines (joins, leaves, deaths, advancements), plus
+  the bot's inner decisions inline — judge verdicts (Jev probability or LLM
+  YES/NO + latency), triggers, skips, held messages, and draft cards you can
+  Send / edit / Regenerate / Discard right in the feed.
+- **Activity log** — the same stream as a compact technical list with filters
+  (decisions / delivery / errors), including mode, hold and mute changes.
+- **Write as the bot** — type in the composer and hit Send; the line goes out
+  immediately and is stored in the bot's memory, so future AI replies treat it
+  as their own history. "Suggest" fills the composer with an AI draft for the
+  last player who spoke (never sent on its own).
+- **Reply modes** — live-switchable in the UI or via `/bot mode`:
+  - `auto` — bot replies on its own (classic behavior),
+  - `approve` — the AI drafts every reply; nothing sends until you Send / edit /
+    Regenerate / Discard. Ignored drafts simply wait,
+  - `manual` — the bot stays quiet; "Suggest" asks the AI for a draft that lands
+    in your composer for editing.
+- **Hold** — stops all automatic sends without changing the mode.
+- **Leave / Rejoin** — one button in the header: the bot posts "left the game",
+  vanishes from the tab list and the multiplayer server-list entry, and stops
+  reacting entirely; the composer locks until you press Rejoin ("joined the
+  game" + session resumes). Pick up where the conversation left off.
+
+Mode and hold state persist in `plugins/FakeMCPlayer/dashboard-state.yml`
+(so your commented `config.yml` is never rewritten).
 
 ## Commands
 
 - `/bot ask <msg>` — talk directly (bypasses judge)
 - `/bot status` — show provider/config
+- `/bot dashboard` — show the console URL + token (admin)
+- `/bot mode <auto|approve|manual>` — reply mode (admin)
+- `/bot leave | /bot rejoin` — remove the bot from the server / bring it back (admin)
 - `/bot reload` — reload config (admin)
 - `/bot on|off` — enable/disable (admin)
 

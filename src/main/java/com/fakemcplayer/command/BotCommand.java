@@ -74,7 +74,66 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(Component.text("Bot: " + config.getBotName()
                         + " | provider=" + config.getProvider()
                         + " | tab=" + config.isShowInTab()
-                        + " | enabled=" + config.isEnabled(), NamedTextColor.AQUA));
+                        + " | enabled=" + config.isEnabled()
+                        + " | left=" + plugin.getDashboardState().isBotLeft(), NamedTextColor.AQUA));
+                return true;
+            }
+            case "leave", "rejoin" -> {
+                if (!sender.hasPermission("fakemcplayer.admin")) {
+                    sender.sendMessage(Component.text("No permission.", NamedTextColor.RED));
+                    return true;
+                }
+                boolean wantLeft = args[0].equalsIgnoreCase("leave");
+                boolean isLeft = plugin.getDashboardState().isBotLeft();
+                if (wantLeft && isLeft) {
+                    sender.sendMessage(Component.text("The bot already left the server.",
+                            NamedTextColor.YELLOW));
+                    return true;
+                }
+                if (!wantLeft && !isLeft) {
+                    sender.sendMessage(Component.text("The bot is already on the server.",
+                            NamedTextColor.YELLOW));
+                    return true;
+                }
+                var pm = plugin.getPresenceManager();
+                if (wantLeft) pm.leave(); else pm.rejoin();
+                sender.sendMessage(Component.text(wantLeft
+                        ? "The bot left the server (rejoin with /" + label + " rejoin)."
+                        : "The bot rejoined the server.", NamedTextColor.GREEN));
+                return true;
+            }
+            case "dashboard" -> {
+                if (!sender.hasPermission("fakemcplayer.admin")) {
+                    sender.sendMessage(Component.text("No permission.", NamedTextColor.RED));
+                    return true;
+                }
+                var ds = plugin.getDashboardServer();
+                if (ds == null || !ds.isRunning()) {
+                    sender.sendMessage(Component.text("Dashboard is disabled (dashboard.enabled).",
+                            NamedTextColor.YELLOW));
+                    return true;
+                }
+                sender.sendMessage(Component.text("Dashboard: " + ds.getUrl(), NamedTextColor.AQUA));
+                sender.sendMessage(Component.text("Token: " + ds.getToken(), NamedTextColor.GRAY));
+                return true;
+            }
+            case "mode" -> {
+                if (!sender.hasPermission("fakemcplayer.admin")) {
+                    sender.sendMessage(Component.text("No permission.", NamedTextColor.RED));
+                    return true;
+                }
+                if (args.length < 2) {
+                    sender.sendMessage(Component.text("Usage: /" + label + " mode <auto|approve|manual>",
+                            NamedTextColor.YELLOW));
+                    return true;
+                }
+                String mode = com.fakemcplayer.dashboard.DashboardState.normalize(args[1]);
+                plugin.getDashboardState().setMode(mode);
+                plugin.getDashboardEvents().add("mode",
+                        com.fakemcplayer.dashboard.DashboardEvents.p().str("mode", mode));
+                sender.sendMessage(Component.text("Bot mode: " + mode
+                        + " (auto = replies itself, approve = drafts for review, manual = you write)",
+                        NamedTextColor.GREEN));
                 return true;
             }
             case "on", "off" -> {
@@ -107,6 +166,9 @@ public class BotCommand implements CommandExecutor, TabCompleter {
         if (sender.hasPermission("fakemcplayer.admin")) {
             sender.sendMessage(Component.text("/" + label + " reload - reload config", NamedTextColor.GRAY));
             sender.sendMessage(Component.text("/" + label + " on|off - enable/disable", NamedTextColor.GRAY));
+            sender.sendMessage(Component.text("/" + label + " dashboard - show the console URL + token", NamedTextColor.GRAY));
+            sender.sendMessage(Component.text("/" + label + " mode <auto|approve|manual> - reply mode", NamedTextColor.GRAY));
+            sender.sendMessage(Component.text("/" + label + " leave|rejoin - remove the bot from the server (tab + chat) or bring it back", NamedTextColor.GRAY));
         }
     }
 
@@ -114,9 +176,16 @@ public class BotCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             List<String> base = new ArrayList<>(List.of("ask", "status"));
-            if (sender.hasPermission("fakemcplayer.admin")) base.addAll(List.of("reload", "on", "off"));
+            if (sender.hasPermission("fakemcplayer.admin")) {
+                base.addAll(List.of("reload", "on", "off", "dashboard", "mode", "leave", "rejoin"));
+            }
             String prefix = args[0].toLowerCase();
             return base.stream().filter(s -> s.startsWith(prefix)).toList();
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("mode")) {
+            String prefix = args[1].toLowerCase();
+            return List.of("auto", "approve", "manual").stream()
+                    .filter(s -> s.startsWith(prefix)).toList();
         }
         return List.of();
     }

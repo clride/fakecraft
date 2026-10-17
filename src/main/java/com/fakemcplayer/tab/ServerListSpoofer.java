@@ -3,6 +3,7 @@ package com.fakemcplayer.tab;
 import com.destroystokyo.paper.profile.ProfileProperty;
 import com.fakemcplayer.FakeMCPlayer;
 import com.fakemcplayer.config.BotConfig;
+import com.fakemcplayer.dashboard.DashboardState;
 import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -18,11 +19,14 @@ public class ServerListSpoofer implements Listener {
     private final FakeMCPlayer plugin;
     private BotConfig config;
     private final SkinService skins;
+    private final DashboardState dashState;
 
-    public ServerListSpoofer(FakeMCPlayer plugin, BotConfig config, SkinService skins) {
+    public ServerListSpoofer(FakeMCPlayer plugin, BotConfig config, SkinService skins,
+                             DashboardState dashState) {
         this.plugin = plugin;
         this.config = config;
         this.skins = skins;
+        this.dashState = dashState;
     }
 
     public void setConfig(BotConfig config) { this.config = config; }
@@ -30,6 +34,8 @@ public class ServerListSpoofer implements Listener {
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onPing(com.destroystokyo.paper.event.server.PaperServerListPingEvent event) {
         if (!config.isEnabled() || !config.isShowBotOnServerList()) return;
+        // Bot has left: it is not in the player count nor the sample list.
+        if (dashState != null && dashState.isBotLeft()) return;
         try {
             event.setNumPlayers(event.getNumPlayers() + 1);
             // Bukkit factory returns the Bukkit type; on Paper the impl also

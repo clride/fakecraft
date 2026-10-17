@@ -44,6 +44,25 @@ server-list:
   # the online count goes +1 and hovering the count lists the bot's name.
   show-bot: true
 
+dashboard:
+  # Local operator console (http://<your-ip>:8642): live chat log, judge
+  # verdicts, AI drafts, and "write as the bot". Open the printed link
+  # (console log or /bot dashboard) with the token.
+  enabled: true
+  # Bind address. 0.0.0.0 = reachable from your LAN (token still required).
+  # 127.0.0.1 = this machine only.
+  host: "0.0.0.0"
+  port: 8642
+  # Access token. Blank = generated at startup and printed to the console.
+  token: ""
+  # Events kept in memory for the UI (chat, verdicts, skips, drafts).
+  buffer-size: 2000
+  # auto    — bot replies on its own (classic behavior)
+  # approve — AI drafts replies; nothing sends until you hit Send in the UI
+  # manual  — bot stays quiet; you write everything ("Suggest" available)
+  # Live-switchable in the UI or /bot mode; persists in dashboard-state.yml.
+  mode: auto
+
 personality:
   system-prompt: >-
     You are Alex, a chill Minecraft regular hanging out on this SMP.
@@ -77,6 +96,10 @@ ai:
   # Lower = more consistent personality, higher = more varied. 0.7 keeps it
   # steady without sounding robotic.
   temperature: 0.7
+  # Completion budget per reply. 150 is fine for plain models; reasoning
+  # models burn tokens on thinking BEFORE any text can appear, so use 400+
+  # there (if the budget runs out first the reply is retried automatically
+  # with a bigger budget, but config stays the clean fix).
   max-tokens: 150
   request-timeout-seconds: 30
   reasoning:
@@ -88,6 +111,10 @@ ai:
     exclude: true  # keep reasoning tokens out of chat (OpenRouter only)
 
 interaction:
+  # Extra mention triggers besides the bot's name. Plain case-insensitive
+  # "contains" match, so keep them specific ("@flo", "!ask"). Leave empty
+  # for name-only. The bot's name is ALWAYS a trigger regardless.
+  mention-triggers: []
   # Who decides whether a group-chat message is addressed to the bot?
   #   llm — YES/NO verdict from your chat provider's judge-model (no extra setup)
   #   jev — TypeSafe System One Noul: typed P(addressed), ~70-500ms, much cheaper.

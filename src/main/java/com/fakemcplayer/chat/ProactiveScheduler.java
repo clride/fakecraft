@@ -14,7 +14,7 @@ public class ProactiveScheduler {
 
     private final FakeMCPlayer plugin;
     private BotConfig config;
-    private final ConversationMemory memory;
+    private ConversationMemory memory;
     private final BotChatService chatService;
     private int taskId = -1;
 
@@ -27,6 +27,7 @@ public class ProactiveScheduler {
     }
 
     public void setConfig(BotConfig config) { this.config = config; }
+    public void setMemory(ConversationMemory memory) { this.memory = memory; }
 
     public void start() {
         stop();

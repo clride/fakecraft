@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FakeMCPlayer Console</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand"><span class="logo"></span>FakeMCPlayer <span id="botName" class="muted"></span></div>
+  <div id="status" class="status"><span id="statusDot" class="dot off"></span><span id="statusText">connecting&hellip;</span></div>
+  <nav id="modes" class="segmented" title="Reply mode">
+    <button data-mode="auto">Auto</button>
+    <button data-mode="approve">Approve</button>
+    <button data-mode="manual">Manual</button>
+  </nav>
+  <button id="pauseBtn" class="ghost">Hold</button>
+  <button id="leaveBtn" class="ghost" title="Remove the bot from the server &mdash; chat line, tab list, server list and all interactions. Rejoin brings it back.">Leave</button>
+</header>
+<main>
+  <section id="chat">
+    <div class="panel-head" id="chatHead">
+      <h2>#server &mdash; work chat</h2>
+      <span id="chatSub" class="muted"></span>
+      <span id="presence" class="muted"></span>
+    </div>
+    <div id="transcript"></div>
+    <div id="composer">
+      <textarea id="input" rows="2" placeholder="Write as the bot&hellip;  Enter = send, Shift+Enter = newline"></textarea>
+      <div class="composer-actions">
+        <span id="composerHint" class="muted"></span>
+        <button id="suggestBtn" class="ghost" title="Ask the AI for a suggestion (goes into the box, never to chat)">Suggest</button>
+        <button id="sendBtn" class="primary">Send</button>
+      </div>
+    </div>
+  </section>
+  <aside id="activity">
+    <div class="panel-head">
+      <h2>Activity</h2>
+      <div id="filters" class="chips">
+        <button data-filter="all" class="active">all</button>
+        <button data-filter="decisions">decisions</button>
+        <button data-filter="delivery">delivery</button>
+        <button data-filter="errors">errors</button>
+      </div>
+    </div>
+    <div id="activityList"></div>
+  </aside>
+</main>
+<div id="banner" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -2,6 +2,8 @@ package com.fakemcplayer.tab;
 
 import com.fakemcplayer.FakeMCPlayer;
 import com.fakemcplayer.config.BotConfig;
+import com.fakemcplayer.dashboard.DashboardEvents;
+import com.fakemcplayer.dashboard.DashboardState;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -31,14 +33,19 @@ public class TablistManager implements Listener {
     private final FakeMCPlayer plugin;
     private BotConfig config;
     private SkinService skins;
+    private DashboardEvents events;
+    private DashboardState dashState;
     private volatile boolean nmsFailed = false;
     private int refreshTask = -1;
     private volatile boolean joinAnnounced = false;
 
-    public TablistManager(FakeMCPlayer plugin, BotConfig config, SkinService skins) {
+    public TablistManager(FakeMCPlayer plugin, BotConfig config, SkinService skins,
+                          DashboardEvents events, DashboardState leftFlag) {
         this.plugin = plugin;
         this.config = config;
         this.skins = skins;
+        this.events = events;
+        this.dashState = leftFlag;
     }
 
     public void setConfig(BotConfig config) {
@@ -52,7 +59,7 @@ public class TablistManager implements Listener {
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
-        if (!config.isShowInTab()) return;
+        if (!config.isShowInTab() || isLeft()) return;
         Player joining = event.getPlayer();
         // Silent inject for the joiner only — a real player does NOT
         // re-announce "joined the game" when someone else joins.
@@ -64,22 +71,45 @@ public class TablistManager implements Listener {
         addToAllSilent();
         if (config.isShowInTab() && config.isFakeJoinMessage() && !joinAnnounced) {
             joinAnnounced = true;
-            Bukkit.getScheduler().runTaskLater(plugin,
-                    () -> Bukkit.getServer().sendMessage(
-                            Component.text(config.getBotName() + " joined the game",
-                                    net.kyori.adventure.text.format.NamedTextColor.YELLOW)),
-                    40L);
+            Bukkit.getScheduler().runTaskLater(plugin, this::announceFakeJoin, 40L);
         }
         // refresh periodically: some tab plugins clear custom entries.
         // Also re-applies realistic ping jitter so the entry never looks frozen.
+        restartTask();
+    }
+
+    /** Re-arm the periodic silent re-inject / ping-jitter task. */
+    private void restartTask() {
         if (refreshTask != -1) Bukkit.getScheduler().cancelTask(refreshTask);
         refreshTask = Bukkit.getScheduler().runTaskTimer(plugin, this::addToAllSilent,
                 20L * 120, 20L * 120).getTaskId();
     }
 
+    /** Operator-triggered rejoin: silent inject + refresh, no announce (PresenceManager announces). */
+    public void showAll() {
+        restartTask();
+        addToAllSilent();
+    }
+
+    /** True while the bot is "left" (leave/rejoin toggle deciding all presence). */
+    public boolean isLeft() {
+        return dashState != null && dashState.isBotLeft();
+    }
+
+    /** The one vanilla-like "<Bot> joined the game" line. Also feeds the console feed. */
+    private void announceFakeJoin() {
+        Bukkit.getServer().sendMessage(
+                Component.text(config.getBotName() + " joined the game",
+                        net.kyori.adventure.text.format.NamedTextColor.YELLOW));
+        if (events != null) {
+            events.add("player_message", DashboardEvents.ev(config.getBotName(),
+                    config.getBotName() + " joined the game").bool("system", true));
+        }
+    }
+
     /** Silent re-inject (joins, skin refresh, ping jitter). No chat output. */
     public void addToAllSilent() {
-        if (!config.isShowInTab()) return;
+        if (isLeft() || !config.isShowInTab()) return;
         for (Player p : Bukkit.getOnlinePlayers()) addToViewer(p);
     }
 

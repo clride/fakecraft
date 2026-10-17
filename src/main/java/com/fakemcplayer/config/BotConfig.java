@@ -22,6 +22,14 @@ public class BotConfig {
     public int getTabLatency() { return c.getInt("bot.tab-latency", 20); }
     public boolean isRealisticPing() { return c.getBoolean("bot.realistic-ping", true); }
     public boolean isShowBotOnServerList() { return c.getBoolean("server-list.show-bot", true); }
+
+    // ---- operator dashboard ----
+    public boolean isDashboardEnabled() { return c.getBoolean("dashboard.enabled", true); }
+    public String getDashboardHost() { return c.getString("dashboard.host", "0.0.0.0"); }
+    public int getDashboardPort() { return c.getInt("dashboard.port", 8642); }
+    public String getDashboardToken() { return c.getString("dashboard.token", ""); }
+    public int getDashboardBufferSize() { return c.getInt("dashboard.buffer-size", 2000); }
+    public String getDashboardMode() { return c.getString("dashboard.mode", "auto"); }
     public boolean isFakeJoinMessage() { return c.getBoolean("bot.fake-join-message", true); }
     public String getChatFormat() { return c.getString("bot.chat-format", "<{name}> {message}"); }
 
@@ -72,6 +80,8 @@ public class BotConfig {
     // ---- interaction ----
     /** Address decider for group chat: "llm" (YES/NO judge) or "jev" (TypeSafe Noul). */
     public String getAddressDecider() { return c.getString("interaction.address-decider", "llm"); }
+    /** Extra mention triggers besides the bot's name (plain "contains", case-insensitive). */
+    public List<String> getMentionTriggers() { return c.getStringList("interaction.mention-triggers"); }
     public boolean isJudgeEnabled() { return c.getBoolean("interaction.group-mode.judge-enabled", true); }
     public String getJudgePromptTemplate() {
         return c.getString("interaction.group-mode.judge-prompt",

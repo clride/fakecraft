@@ -8,10 +8,15 @@
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/ChatListener.java
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/ConversationMemory.java
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/JoinGreeter.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/PresenceManager.java
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/ProactiveScheduler.java
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/SocialEventListener.java
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/command/BotCommand.java
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/config/BotConfig.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/dashboard/DashboardEvents.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/dashboard/DashboardServer.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/dashboard/DashboardState.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/dashboard/DraftRegistry.java
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/tab/ServerListSpoofer.java
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/tab/SkinService.java
 /home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/tab/TablistManager.java
