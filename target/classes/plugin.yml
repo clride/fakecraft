@@ -1,0 +1,19 @@
+name: FakeMCPlayer
+version: '1.0.0'
+main: com.fakemcplayer.FakeMCPlayer
+api-version: '1.20'
+author: FakeMCPlayer
+description: Fake player bot in tab-list that chats via OpenRouter / Ollama.
+commands:
+  bot:
+    description: Talk to and manage the fake player bot
+    usage: /bot <ask|status|reload|on|off>
+    permission: fakemcplayer.use
+    aliases: [ask, fakebot]
+permissions:
+  fakemcplayer.use:
+    description: Talk to the bot
+    default: true
+  fakemcplayer.admin:
+    description: Manage the bot
+    default: op

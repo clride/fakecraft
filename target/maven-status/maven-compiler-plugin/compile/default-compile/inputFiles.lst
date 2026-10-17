@@ -1,0 +1,17 @@
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/FakeMCPlayer.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/ai/AiProvider.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/ai/JevClient.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/ai/JudgeService.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/ai/OllamaClient.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/ai/OpenRouterClient.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/BotChatService.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/ChatListener.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/ConversationMemory.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/JoinGreeter.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/ProactiveScheduler.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/chat/SocialEventListener.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/command/BotCommand.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/config/BotConfig.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/tab/ServerListSpoofer.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/tab/SkinService.java
+/home/dave/Projects/vibecoding/fakemcplayer/src/main/java/com/fakemcplayer/tab/TablistManager.java
